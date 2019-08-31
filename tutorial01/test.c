@@ -3,10 +3,22 @@
 #include <string.h>
 #include "leptjson.h"
 
+/**
+ * 返回结果
+ */
 static int main_ret = 0;
+
+/**
+ * 测试数量
+ */
 static int test_count = 0;
+
+/**
+ * 通过测试数量
+ */
 static int test_pass = 0;
 
+/* 宏命名规则：项目名称_目录_文件名称_H__，统一后缀：_H__ */
 #define EXPECT_EQ_BASE(equality, expect, actual, format) \
     do {\
         test_count++;\
@@ -18,12 +30,19 @@ static int test_pass = 0;
         }\
     } while(0)
 
-#define EXPECT_EQ_INT(expect, actual) EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%d")
+#define EXPECT_EQ_INT(expect, actual)\
+    EXPECT_EQ_BASE((expect) == (actual), expect, actual, "%d")
 
 static void test_parse_null() {
     lept_value v;
+
+    /* 初始值设为 FALSE */
     v.type = LEPT_FALSE;
+
+    /* 把 "null" 解析后存入 v，期望返回 OK */
     EXPECT_EQ_INT(LEPT_PARSE_OK, lept_parse(&v, "null"));
+
+    /* 期望被解析后 v 的值为 NULL */
     EXPECT_EQ_INT(LEPT_NULL, lept_get_type(&v));
 }
 
@@ -57,11 +76,27 @@ static void test_parse_root_not_singular() {
     EXPECT_EQ_INT(LEPT_NULL, lept_get_type(&v));
 }
 
+static void test_parse_true() {
+    lept_value v;
+    v.type = LEPT_FALSE;
+    EXPECT_EQ_INT(LEPT_PARSE_OK, lept_parse(&v, "true"));
+    EXPECT_EQ_INT(LEPT_TRUE, lept_get_type(&v));
+}
+
+static void test_parse_false() {
+    lept_value v;
+    v.type = LEPT_FALSE;
+    EXPECT_EQ_INT(LEPT_PARSE_OK, lept_parse(&v, "false"));
+    EXPECT_EQ_INT(LEPT_FALSE, lept_get_type(&v));
+}
+
 static void test_parse() {
     test_parse_null();
     test_parse_expect_value();
     test_parse_invalid_value();
     test_parse_root_not_singular();
+    test_parse_true();
+    test_parse_false();
 }
 
 int main() {
