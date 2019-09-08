@@ -2,6 +2,8 @@
 #define LEPTJSON_H__
 /* 宏的名字必须是唯一的，通常习惯以 _H__ 作为后缀：项目名称_目录_文件名称_H__ */
 
+#include <stddef.h> /* size_t */
+
 /* C 语言没有命名空间，一般会使用项目的简写作为标识符的前缀 */
 /* 通常枚举值用全大写，类型及函数则用小写 */
 typedef enum {
@@ -22,7 +24,8 @@ enum {
     LEPT_PARSE_EXPECT_VALUE,        /* JSON 只含有空白 */
     LEPT_PARSE_INVALID_VALUE,       /* 非合法的字面值 */
     LEPT_PARSE_ROOT_NOT_SINGULAR,   /* 一个值之后，在空白之后还有其他字符 */
-    LEPT_PARSE_NUMBER_TOO_BIG        /* 数值过大 */
+    LEPT_PARSE_NUMBER_TOO_BIG,      /* 数值过大 */
+    LEPT_PARSE_MISS_QUOTATION_MARK
 };
 
 /**

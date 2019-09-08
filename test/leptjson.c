@@ -2,19 +2,33 @@
 #include <assert.h>  /* assert() */
 #include <stdlib.h>  /* NULL, strtod() */
 #include <stdio.h>
+#include <stddef.h> /* size_t */
 #include <math.h>    /* HUGE_VAL */
 #include <errno.h>   /* errno, ERANGE */
 #include <string.h>  /* memcpy() */
+
+/* 缓冲区堆栈大小（好处是使用者可在编译选项中自行设置宏，没设置的话就用缺省值） */
+#ifndef LEPT_PARSE_STACK_INIT_SIZE
+#define LEPT_PARSE_STACK_INIT_SIZE 256
+#endif
+
+#define PUTC(c, ch)\
+    do {\
+        *(char*) lept_context_push(c, sizeof(char)) = (ch);\
+    } while(0)
 
 /**
  * JSON 解析上下文，存放待解析的 JSON 字符串，用于解析时传参
  */
 typedef struct {
     const char *json;       /* 待解析的 JSON 字符串 */
-    char *stack;            /* 缓冲区（堆栈），把解析的结果先储存在一个临时的缓冲区，最后再用 lept_set_string() 把结果设进值之中 */
+    char *stack;            /* 缓冲区（堆栈），把解析的结果先储存在一个临时的缓冲区（以字节存储），最后再用 lept_set_string() 把结果设进值之中 */
     size_t size, top;       /* 堆栈容量和顶部指针 */
 } lept_context;
 
+/**
+ * 初始化 JSON 对象
+ */
 #define lept_init(v) \
     do {\
         (v)->type = LEPT_NULL; \
@@ -38,6 +52,96 @@ typedef struct {
  * 判断 1~9 数字
  */
 #define ISDIGIT1TO9(ch)     ((ch) >= '1' && (ch) <= '9')
+
+/**
+ * JSON 上下文入栈
+ *
+ * @param c
+ * @param size
+ * @return
+ */
+static void *lept_context_push(lept_context *c, size_t size) {
+    void *ret;
+    assert(size > 0);
+    /* 栈容量不足，需要扩容 */
+    if (c->top + size >= c->size) {
+        /* 第一次扩容，设置为初始容量 */
+        if (c->size == 0) {
+            c->size = LEPT_PARSE_STACK_INIT_SIZE;
+        }
+        /* 每次扩容 1.5 倍，直到正好满足入栈要求 */
+        while (c->top + size >= c->size) {
+            c->size += c->size >> 1;
+        }
+        /* 分配内存（尝试重新调整之前调用 malloc 或 calloc 所分配的 ptr 所指向的内存块的大小） */
+        /* c->stack 在初始化时为 NULL，realloc(NULL, size) 的行为是等价于 malloc(size) 的 */
+        c->stack = (char *) realloc(c->stack, c->size);
+    }
+    /* 返回当前入栈数据数据起始位置的指针 */
+    ret = c->stack + c->top;
+    c->top += size;
+    return ret;
+}
+
+/**
+ * JSON 上下文出栈
+ *
+ * @param c
+ * @param size
+ * @return
+ */
+static void *lept_context_pop(lept_context *c, size_t size) {
+    assert(c->top >= size);
+    return c->stack + (c->top -= size);
+}
+
+/**
+ * 解析空字符，包括空格、制表符、换行符等，把 c-> json 定位到首个非空字符出现的位置
+ *
+ * @param c
+ */
+static void lept_parse_whitespace(lept_context *c) {
+    const char *p = c->json;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+        p++;
+    }
+    c->json = p;
+}
+
+/**
+ * 解析字符串
+ *
+ * @param c
+ * @param v
+ * @return
+ */
+static int lept_parse_string(lept_context *c, lept_value *v) {
+    /* 备份栈顶*/
+    size_t head = c->top, len;
+    const char *p;
+
+    /* 字符串以 “"” 开始，判断并去除第一个 “"” */
+    EXPECT(c, '\"');
+    p = c->json;
+    for (;;) {
+        char ch = *p++;
+        switch (ch) {
+            /* 字符串以 “"” 结束，此时计算串长度、把入栈字符出栈 */
+            case '\"':
+                len = c->top - head;
+                lept_set_string(v, (const char *) lept_context_pop(c, len), len);
+                c->json = p;
+                return LEPT_PARSE_OK;
+            case '\0':
+                c->top = head;
+                return LEPT_PARSE_MISS_QUOTATION_MARK;
+
+                /* 待解析字符入栈 */
+            default:
+                PUTC(c, ch);
+        }
+    }
+}
 
 /**
  * 解析 NULL、TRUE、FALSE
@@ -72,18 +176,6 @@ static int lept_parse_literal(lept_context *c, lept_value *v, const char *litera
     return LEPT_PARSE_OK;
 }
 
-/**
- * 解析空字符，包括空格、制表符、换行符等，把 c-> json 定位到首个非空字符出现的位置
- *
- * @param c
- */
-static void lept_parse_whitespace(lept_context *c) {
-    const char *p = c->json;
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
-        p++;
-    }
-    c->json = p;
-}
 
 /**
  * 解析数值
@@ -145,7 +237,7 @@ static int lept_parse_number(lept_context *c, lept_value *v) {
         for (p++; ISDIGIT(*p); p++);
     }
     errno = 0;
-    v->u->n = strtod(c->json, NULL);
+    v->u.n = strtod(c->json, NULL);
     if (errno == ERANGE && (v->u.n == HUGE_VAL || v->u.n == -HUGE_VAL)) {
         return LEPT_PARSE_NUMBER_TOO_BIG;
     }
@@ -173,6 +265,8 @@ static int lept_parse_value(lept_context *c, lept_value *v) {
             return lept_parse_literal(c, v, "null", LEPT_NULL);
         default:
             return lept_parse_number(c, v);
+        case '"':
+            return lept_parse_string(c, v);
         case '\0':
             return LEPT_PARSE_EXPECT_VALUE;
     }
@@ -207,6 +301,10 @@ int lept_parse(lept_value *v, const char *json) {
             ret = LEPT_PARSE_ROOT_NOT_SINGULAR;
         }
     }
+
+    /* 最后确定上下文堆栈清空，表示解析完成，并释放栈内存 */
+    assert(c.top == 0);
+    free(c.stack);
     return ret;
 }
 
@@ -257,6 +355,17 @@ size_t lept_get_string_length(const lept_value *v) {
 }
 
 /**
+ * 获取字符串值
+ *
+ * @param v
+ * @return
+ */
+const char *lept_get_string(const lept_value *v) {
+    assert(v != NULL && v->type == LEPT_STRING);
+    return v->u.s.s;
+}
+
+/**
  * 设置字符串值
  *
  * @param v
@@ -276,6 +385,17 @@ void lept_set_string(lept_value *v, const char *s, size_t len) {
     v->u.s.s[len] = '\0';
     v->u.s.len = len;
     v->type = LEPT_STRING;
+}
+
+/**
+ * 获取布尔值
+ *
+ * @param v
+ * @return
+ */
+int lept_get_boolean(const lept_value *v) {
+    assert(v != NULL && (v->type == LEPT_TRUE || v->type == LEPT_FALSE));
+    return v->type == LEPT_TRUE;
 }
 
 /**
