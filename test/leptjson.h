@@ -18,24 +18,25 @@ typedef enum {
  * JSON 解析结果
  */
 enum {
-    /* 解析成功 */
-    LEPT_PARSE_OK = 0,
-
-    /* JSON 只含有空白 */
-    LEPT_PARSE_EXPECT_VALUE,
-
-    /* 非合法的字面值 */
-    LEPT_PARSE_INVALID_VALUE,
-
-    /* 一个值之后，在空白之后还有其他字符 */
-    LEPT_PARSE_ROOT_NOT_SINGULAR
+    LEPT_PARSE_OK = 0,              /* 解析成功 */
+    LEPT_PARSE_EXPECT_VALUE,        /* JSON 只含有空白 */
+    LEPT_PARSE_INVALID_VALUE,       /* 非合法的字面值 */
+    LEPT_PARSE_ROOT_NOT_SINGULAR,   /* 一个值之后，在空白之后还有其他字符 */
+    LEPT_PARSE_NUMBER_TOO_BIG        /* 数值过大 */
 };
 
 /**
  * JSON 的数据结构，以树形表示。即一个 JSON 值节点
  */
 typedef struct {
-    lept_type type;
+    lept_type type;         /* 类型 */
+    union {
+        struct {
+            char *s;
+            size_t len;
+        } s;                /* 字符串 */
+        double n;           /* 数值（type == LEPT_NUMBER） */
+    } u;                    /* 一个值不可能同时为数字和字符串，因此可以用 union 节省内存 */
 } lept_value;
 
 /**
@@ -52,11 +53,86 @@ typedef struct {
 int lept_parse(lept_value *v, const char *json);
 
 /**
- * 获取 JSON 值
+ * 获取类型
  *
  * @param v
  * @return
  */
 lept_type lept_get_type(const lept_value *v);
+
+/**
+ * 获取数值
+ *
+ * @param v
+ * @return
+ */
+double lept_get_number(const lept_value *v);
+
+/**
+ * （调用访问函数前）对 JSON 对象类型初始化
+ * do { ... } while(0) 把表达式转为语句，模仿无返回值的函数
+ */
+#define lept_init(v) do { (v)->type = LEPT_NULL; } while(0)
+
+/**
+ * 释放内存（用于字符串）
+ *
+ * @param v
+ */
+void lept_free(lept_value *v);
+
+/**
+ * 设置空值
+ */
+#define lept_set_null(v) lept_free(v)
+
+/**
+ * 获取布尔值
+ *
+ * @param v
+ * @return
+ */
+int lept_get_boolean(const lept_value *v);
+
+/**
+ * 设置 BOOLEAN 值
+ *
+ * @param v
+ * @param b
+ */
+void lept_set_boolean(lept_value *v, int b);
+
+/**
+ * 设置数值
+ *
+ * @param v
+ * @param n
+ */
+void lept_set_number(lept_value *v, double n);
+
+/**
+ * 获取字符串值
+ *
+ * @param v
+ * @return
+ */
+const char *lept_get_string(const lept_value *v);
+
+/**
+ * 获取字符串长度
+ *
+ * @param v
+ * @return
+ */
+size_t lept_get_string_length(const lept_value *v);
+
+/**
+ * 设置字符串值
+ *
+ * @param v
+ * @param s
+ * @param len
+ */
+void lept_set_string(lept_value *v, const char *s, size_t len);
 
 #endif
