@@ -1,38 +1,16 @@
 #include "leptjson.h"
-#include <assert.h>  /* assert() */
-#include <stdlib.h>  /* NULL, strtod() */
+#include <assert.h>     /* assert() */
+#include <stdlib.h>     /* NULL, strtod() */
 #include <stdio.h>
-#include <stddef.h> /* size_t */
-#include <math.h>    /* HUGE_VAL */
-#include <errno.h>   /* errno, ERANGE */
-#include <string.h>  /* memcpy() */
+#include <stddef.h>     /* size_t */
+#include <math.h>       /* HUGE_VAL */
+#include <errno.h>      /* errno, ERANGE */
+#include <string.h>     /* memcpy() */
 
 /* 缓冲区堆栈大小（好处是使用者可在编译选项中自行设置宏，没设置的话就用缺省值） */
 #ifndef LEPT_PARSE_STACK_INIT_SIZE
 #define LEPT_PARSE_STACK_INIT_SIZE 256
 #endif
-
-#define PUTC(c, ch)\
-    do {\
-        *(char*) lept_context_push(c, sizeof(char)) = (ch);\
-    } while(0)
-
-/**
- * JSON 解析上下文，存放待解析的 JSON 字符串，用于解析时传参
- */
-typedef struct {
-    const char *json;       /* 待解析的 JSON 字符串 */
-    char *stack;            /* 缓冲区（堆栈），把解析的结果先储存在一个临时的缓冲区（以字节存储），最后再用 lept_set_string() 把结果设进值之中 */
-    size_t size, top;       /* 堆栈容量和顶部指针 */
-} lept_context;
-
-/**
- * 初始化 JSON 对象
- */
-#define lept_init(v) \
-    do {\
-        (v)->type = LEPT_NULL; \
-    } while(0)
 
 /**
  * 判断 c 的首字母是否 ch，并向后移动一位
@@ -52,6 +30,31 @@ typedef struct {
  * 判断 1~9 数字
  */
 #define ISDIGIT1TO9(ch)     ((ch) >= '1' && (ch) <= '9')
+
+/**
+ * 入栈
+ */
+#define PUTC(c, ch)\
+    do {\
+        *(char*) lept_context_push(c, sizeof(char)) = (ch);\
+    } while(0)
+
+/**
+ * JSON 解析上下文，存放待解析的 JSON 字符串，用于解析时传参
+ */
+typedef struct {
+    const char *json;       /* 待解析的 JSON 字符串 */
+    char *stack;            /* 缓冲区（堆栈），把解析的结果先储存在一个临时的缓冲区（以字节存储），最后再用 lept_set_string() 把结果设进值之中 */
+    size_t size, top;       /* 堆栈容量和当前栈顶位置，此处使用动态堆栈实现，避免每次解析字符串都要新建一个 */
+} lept_context;
+
+/**
+ * 初始化 JSON 对象
+ */
+#define lept_init(v) \
+    do {\
+        (v)->type = LEPT_NULL; \
+    } while(0)
 
 /**
  * JSON 上下文入栈
@@ -109,41 +112,6 @@ static void lept_parse_whitespace(lept_context *c) {
 }
 
 /**
- * 解析字符串
- *
- * @param c
- * @param v
- * @return
- */
-static int lept_parse_string(lept_context *c, lept_value *v) {
-    /* 备份栈顶*/
-    size_t head = c->top, len;
-    const char *p;
-
-    /* 字符串以 “"” 开始，判断并去除第一个 “"” */
-    EXPECT(c, '\"');
-    p = c->json;
-    for (;;) {
-        char ch = *p++;
-        switch (ch) {
-            /* 字符串以 “"” 结束，此时计算串长度、把入栈字符出栈 */
-            case '\"':
-                len = c->top - head;
-                lept_set_string(v, (const char *) lept_context_pop(c, len), len);
-                c->json = p;
-                return LEPT_PARSE_OK;
-            case '\0':
-                c->top = head;
-                return LEPT_PARSE_MISS_QUOTATION_MARK;
-
-                /* 待解析字符入栈 */
-            default:
-                PUTC(c, ch);
-        }
-    }
-}
-
-/**
  * 解析 NULL、TRUE、FALSE
  *
  * @param c
@@ -176,9 +144,8 @@ static int lept_parse_literal(lept_context *c, lept_value *v, const char *litera
     return LEPT_PARSE_OK;
 }
 
-
 /**
- * 解析数值
+ * 解析数值（依次判断负号、前置0、小数点、指数）
  *
  * @param c
  * @param v
@@ -238,12 +205,86 @@ static int lept_parse_number(lept_context *c, lept_value *v) {
     }
     errno = 0;
     v->u.n = strtod(c->json, NULL);
+
+    /* 表示溢出的双精度浮点数 */
     if (errno == ERANGE && (v->u.n == HUGE_VAL || v->u.n == -HUGE_VAL)) {
         return LEPT_PARSE_NUMBER_TOO_BIG;
     }
     v->type = LEPT_NUMBER;
     c->json = p;
     return LEPT_PARSE_OK;
+}
+
+/**
+ * 解析字符串
+ *
+ * @param c
+ * @param v
+ * @return
+ */
+static int lept_parse_string(lept_context *c, lept_value *v) {
+    /* 备份栈顶*/
+    size_t head = c->top, len;
+    const char *p;
+
+    /* 字符串以 “"” 开始，判断并去除第一个 “"” */
+    EXPECT(c, '\"');
+    p = c->json;
+    for (;;) {
+        char ch = *p++;
+        switch (ch) {
+            case '\"':
+                /* 字符串以 “"” 结束，此时计算串长度、把入栈字符出栈 */
+                len = c->top - head;
+                lept_set_string(v, (const char *) lept_context_pop(c, len), len);
+                c->json = p;
+                return LEPT_PARSE_OK;
+            case '\0':
+                c->top = head;
+                return LEPT_PARSE_MISS_QUOTATION_MARK;
+            case '\\':
+                /* 处理转义字符，对“\”的下一个字符判断 */
+                switch (*p++) {
+                    case '\"':
+                        PUTC(c, '\"');
+                        break;
+                    case '\\':
+                        PUTC(c, '\\');
+                        break;
+                    case '/':
+                        PUTC(c, '/');
+                        break;
+                    case 'b':
+                        PUTC(c, '\b');
+                        break;
+                    case 'f':
+                        PUTC(c, '\f');
+                        break;
+                    case 'n':
+                        PUTC(c, '\n');
+                        break;
+                    case 'r':
+                        PUTC(c, '\r');
+                        break;
+                    case 't':
+                        PUTC(c, '\t');
+                        break;
+                    default:
+                        c->top = head;
+                        return LEPT_PARSE_INVALID_STRING_ESCAPE;
+                }
+                break;
+            default:
+                /* 处理不合法字符 */
+                if ((unsigned char) ch < 0x20) {
+                    c->top = head;
+                    return LEPT_PARSE_INVALID_STRING_CHAR;
+                }
+
+                /* 待解析字符入栈 */
+                PUTC(c, ch);
+        }
+    }
 }
 
 /**
@@ -322,6 +363,17 @@ void lept_free(lept_value *v) {
 }
 
 /**
+ * 获取类型
+ *
+ * @param v
+ * @return
+ */
+lept_type lept_get_type(const lept_value *v) {
+    assert(v != NULL);
+    return v->type;
+}
+
+/**
  * 获取数值
  *
  * @param v
@@ -333,14 +385,15 @@ double lept_get_number(const lept_value *v) {
 }
 
 /**
- * 获取类型
+ * 设置数值
  *
  * @param v
- * @return
+ * @param n
  */
-lept_type lept_get_type(const lept_value *v) {
-    assert(v != NULL);
-    return v->type;
+void lept_set_number(lept_value *v, double n) {
+    lept_free(v);
+    v->u.n = n;
+    v->type = LEPT_NUMBER;
 }
 
 /**
@@ -380,7 +433,7 @@ void lept_set_string(lept_value *v, const char *s, size_t len) {
     /* 分配内存 */
     v->u.s.s = (char *) malloc(len + 1);
 
-    /* 把 s 中的前 len 个字符复制给 v->u.s.s */
+    /* 把 s 中的前 len 个字符复制给 v->u.s.s，设置长度，末尾补"\0" */
     memcpy(v->u.s.s, s, len);
     v->u.s.s[len] = '\0';
     v->u.s.len = len;

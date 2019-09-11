@@ -25,7 +25,9 @@ enum {
     LEPT_PARSE_INVALID_VALUE,       /* 非合法的字面值 */
     LEPT_PARSE_ROOT_NOT_SINGULAR,   /* 一个值之后，在空白之后还有其他字符 */
     LEPT_PARSE_NUMBER_TOO_BIG,      /* 数值过大 */
-    LEPT_PARSE_MISS_QUOTATION_MARK
+    LEPT_PARSE_MISS_QUOTATION_MARK,
+    LEPT_PARSE_INVALID_STRING_ESCAPE,
+    LEPT_PARSE_INVALID_STRING_CHAR
 };
 
 /**
@@ -43,6 +45,12 @@ typedef struct {
 } lept_value;
 
 /**
+ * （调用访问函数前）对 JSON 对象类型初始化
+ * do { ... } while(0) 把表达式转为语句，模仿无返回值的函数
+ */
+#define lept_init(v) do { (v)->type = LEPT_NULL; } while(0)
+
+/**
  * 解析 JSON 字符串，用法：
  *      // 传入的根节点指针 v 是由使用方负责分配的
  *      lept_value v;
@@ -56,33 +64,19 @@ typedef struct {
 int lept_parse(lept_value *v, const char *json);
 
 /**
+ * 释放内存（用于字符串）
+ *
+ * @param v
+ */
+void lept_free(lept_value *v);
+
+/**
  * 获取类型
  *
  * @param v
  * @return
  */
 lept_type lept_get_type(const lept_value *v);
-
-/**
- * 获取数值
- *
- * @param v
- * @return
- */
-double lept_get_number(const lept_value *v);
-
-/**
- * （调用访问函数前）对 JSON 对象类型初始化
- * do { ... } while(0) 把表达式转为语句，模仿无返回值的函数
- */
-#define lept_init(v) do { (v)->type = LEPT_NULL; } while(0)
-
-/**
- * 释放内存（用于字符串）
- *
- * @param v
- */
-void lept_free(lept_value *v);
 
 /**
  * 设置空值
@@ -104,6 +98,14 @@ int lept_get_boolean(const lept_value *v);
  * @param b
  */
 void lept_set_boolean(lept_value *v, int b);
+
+/**
+ * 获取数值
+ *
+ * @param v
+ * @return
+ */
+double lept_get_number(const lept_value *v);
 
 /**
  * 设置数值
