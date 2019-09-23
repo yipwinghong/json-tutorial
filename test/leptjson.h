@@ -32,19 +32,28 @@ enum {
     LEPT_PARSE_INVALID_UNICODE_SURROGATE
 };
 
+
 /**
  * JSON 的数据结构，以树形表示。即一个 JSON 值节点
+ * lept_value 内使用了自身类型的指针，必须前向声明（forward declare）此类型：typedef struct {} lept_value; => struct lept_value
  */
-typedef struct {
-    lept_type type;         /* 类型 */
+typedef struct lept_value lept_value;
+
+
+struct lept_value {
     union {
+        struct {
+            lept_value *e;
+            size_t size;
+        } a;
         struct {
             char *s;
             size_t len;
-        } s;                /* 字符串 */
-        double n;           /* 数值（type == LEPT_NUMBER） */
-    } u;                    /* 一个值不可能同时为数字和字符串，因此可以用 union 节省内存 */
-} lept_value;
+        } s;                    /* 字符串 */
+        double n;               /* 数值（type == LEPT_NUMBER） */
+    } u;                        /* 一个值不可能同时为数字和字符串，因此可以用 union 节省内存 */
+    lept_type type;             /* 类型 */
+};
 
 /**
  * （调用访问函数前）对 JSON 对象类型初始化
@@ -94,7 +103,7 @@ lept_type lept_get_type(const lept_value *v);
 int lept_get_boolean(const lept_value *v);
 
 /**
- * 设置 BOOLEAN 值
+ * 设置布尔值
  *
  * @param v
  * @param b
@@ -141,5 +150,22 @@ size_t lept_get_string_length(const lept_value *v);
  * @param len
  */
 void lept_set_string(lept_value *v, const char *s, size_t len);
+
+/**
+ * 获取数组大小
+ *
+ * @param v
+ * @return
+ */
+size_t lept_get_array_size(const lept_value *v);
+
+/**
+ * 获取数组元素
+ *
+ * @param v
+ * @param index
+ * @return
+ */
+lept_value* lept_get_array_element(const lept_value *v, size_t index);
 
 #endif

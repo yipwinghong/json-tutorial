@@ -518,3 +518,26 @@ void lept_set_boolean(lept_value *v, int b) {
     lept_free(v);
     v->type = b ? LEPT_TRUE : LEPT_FALSE;
 }
+
+/**
+ * 获取数组大小
+ *
+ * @param v
+ * @return
+ */
+size_t lept_get_array_size(const lept_value *v) {
+    assert( v != NULL && v->type == LEPT_ARRAY);
+    return v->u.a.size;
+}
+
+/**
+ * 获取数组元素
+ *
+ * @param v
+ * @param index
+ * @return
+ */
+lept_value* lept_get_array_element(const lept_value *v, size_t index) {
+    assert( v != NULL && v->type == LEPT_ARRAY && index < v->u.a.size);
+    return &v->u.a.e[index];
+}
