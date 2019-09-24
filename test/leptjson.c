@@ -61,6 +61,8 @@ typedef struct {
         (v)->type = LEPT_NULL; \
     } while(0)
 
+static int lept_parse_value(lept_context *c, lept_value *v); /* 前向声明 */
+
 /**
  * JSON 上下文入栈
  *
@@ -344,6 +346,38 @@ static int lept_parse_string(lept_context *c, lept_value *v) {
     }
 }
 
+static int lept_parse_array(lept_context *c, lept_value *v) {
+    size_t size = 0;
+    int ret;
+    EXPECT(c, '[');
+    if (*c->json == ']') {
+        c->json++;
+        v->type = LEPT_ARRAY;
+        v->u.a.size = 0;
+        v->u.a.e = NULL;
+        return LEPT_PARSE_OK;
+    }
+    for (;;) {
+        lept_value e;
+        lept_init(&e);
+        if ((ret = lept_parse_value(c, &e)) != LEPT_PARSE_OK) {
+            return ret;
+        }
+        memcpy(lept_context_push(c, sizeof(lept_value)), &e, sizeof(lept_value));
+        size++;
+        if (*c->json == ',') {
+            c->json++;
+        } else if (*c->json == ']') {
+            c->json++;
+            v->type = LEPT_ARRAY;
+            v->u.a.size = size;
+            size *= sizeof(lept_value);
+            memcpy(v->u.a.e = (lept_value*) malloc(size), lept_context_pop(c, size), size);
+        }
+    }
+
+}
+
 /**
  * 解析非空 JSON 值
  *
@@ -526,7 +560,7 @@ void lept_set_boolean(lept_value *v, int b) {
  * @return
  */
 size_t lept_get_array_size(const lept_value *v) {
-    assert( v != NULL && v->type == LEPT_ARRAY);
+    assert(v != NULL && v->type == LEPT_ARRAY);
     return v->u.a.size;
 }
 
@@ -537,7 +571,7 @@ size_t lept_get_array_size(const lept_value *v) {
  * @param index
  * @return
  */
-lept_value* lept_get_array_element(const lept_value *v, size_t index) {
-    assert( v != NULL && v->type == LEPT_ARRAY && index < v->u.a.size);
+lept_value *lept_get_array_element(const lept_value *v, size_t index) {
+    assert(v != NULL && v->type == LEPT_ARRAY && index < v->u.a.size);
     return &v->u.a.e[index];
 }
